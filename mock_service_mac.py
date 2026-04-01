@@ -5,7 +5,15 @@ import subprocess
 import sys
 import time
 
+import Quartz
+
 _proc = None
+_GHOST_INTERVAL = 30
+
+def _ghost_move():
+    pos = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+    evt = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, pos, 0)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, evt)
 
 def _apply(active: bool):
     global _proc
@@ -37,12 +45,16 @@ def main():
 
     if duration_minutes:
         print(f"Running for {duration_minutes} minutes. Ctrl+C to stop.")
-        time.sleep(duration_minutes * 60)
+        end = time.monotonic() + duration_minutes * 60
+        while time.monotonic() < end:
+            _ghost_move()
+            time.sleep(min(_GHOST_INTERVAL, end - time.monotonic()))
         cleanup()
     else:
         print("Service running. Ctrl+C to stop.")
         while True:
-            time.sleep(60)
+            _ghost_move()
+            time.sleep(_GHOST_INTERVAL)
 
 if __name__ == "__main__":
     main()
