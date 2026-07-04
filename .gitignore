@@ -1,0 +1,10 @@
+# Claude Code docs (keep local, don't publish)
+CLAUDE.md
+CLAUDE.local.md
+
+# Runtime-generated
+not_idle_config.json
+
+# Python
+__pycache__/
+*.py[cod]

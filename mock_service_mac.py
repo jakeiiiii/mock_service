@@ -1,24 +1,56 @@
 """Background service module."""
 
+import ctypes
 import signal
 import subprocess
 import sys
 import time
 
-import Quartz
+# CoreGraphics event API via ctypes — no third-party packages (pyobjc) required.
+# NOTE: posting synthetic HID events requires the running process (Terminal /
+# Python) to be granted Accessibility permission in
+# System Settings -> Privacy & Security -> Accessibility.
+_cg = ctypes.CDLL(
+    "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+)
+
+class _CGPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+_cg.CGEventCreate.restype = ctypes.c_void_p
+_cg.CGEventCreate.argtypes = [ctypes.c_void_p]
+_cg.CGEventGetLocation.restype = _CGPoint
+_cg.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+_cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+_cg.CGEventCreateMouseEvent.argtypes = [
+    ctypes.c_void_p, ctypes.c_uint32, _CGPoint, ctypes.c_uint32,
+]
+_cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+_cg.CFRelease.argtypes = [ctypes.c_void_p]
+
+_kCGEventMouseMoved = 5
+_kCGHIDEventTap = 0
+_kCGMouseButtonLeft = 0
 
 _proc = None
 _GHOST_INTERVAL = 30
 
 def _ghost_move():
-    pos = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
-    evt = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, pos, 0)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, evt)
+    # Zero-delta move at the current cursor position so the pointer never jumps,
+    # while still resetting the HID idle timer (Teams presence + screensaver).
+    probe = _cg.CGEventCreate(None)
+    pos = _cg.CGEventGetLocation(probe)
+    _cg.CFRelease(probe)
+    evt = _cg.CGEventCreateMouseEvent(None, _kCGEventMouseMoved, pos, _kCGMouseButtonLeft)
+    _cg.CGEventPost(_kCGHIDEventTap, evt)
+    _cg.CFRelease(evt)
 
 def _apply(active: bool):
     global _proc
     if active:
-        _proc = subprocess.Popen(["caffeinate", "-d"])
+        # Prevent display sleep (-d), idle sleep (-i), disk sleep (-m), and
+        # assert the user is active (-u) so the screensaver stays suppressed.
+        _proc = subprocess.Popen(["caffeinate", "-disu"])
     elif _proc:
         _proc.terminate()
         _proc.wait()
